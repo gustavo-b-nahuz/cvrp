@@ -13,7 +13,7 @@ class CVRPInstance:
         self.node_coords = node_coords
         self.demands = demands
         self.distances = self._calculate_distances()
-        self.num_vehicles = num_vehicles  # Número de veículos lido do nome da instância
+        self.num_vehicles = num_vehicles
 
     def _calculate_distances(self):
         distances = [[0] * self.dimension for _ in range(self.dimension)]
@@ -25,23 +25,19 @@ class CVRPInstance:
         return distances
 
     def generate_initial_solution(self):
-        # Defina um seed fixo para testes reprodutíveis (opcional):
-        # random.seed(0)
-
+        # Gera a solução inicial escolhendo aleatoriamente o primeiro cliente
         remaining_clients = set(range(1, self.dimension + 1))
-        remaining_clients.remove(
-            self.depot
-        )  # Remove o depósito do conjunto de clientes
+        remaining_clients.remove(self.depot)  # Remove o depósito
         solution = []
 
         while remaining_clients:
-            # Escolhe aleatoriamente um cliente como ponto de partida desta rota
+            # Escolhe aleatoriamente um cliente para iniciar a rota
             current_node = random.choice(list(remaining_clients))
             route = [current_node]
             current_capacity = self.capacity - self.demands[current_node]
             remaining_clients.remove(current_node)
 
-            # Expande a rota usando vizinho mais próximo até não haver mais capacidade
+            # Adiciona mais clientes pela lógica de vizinho mais próximo
             while True:
                 closest_client = None
                 closest_distance = float("inf")
@@ -54,7 +50,6 @@ class CVRPInstance:
                             closest_client = client
 
                 if closest_client is None:
-                    # Não conseguimos adicionar mais clientes nesta rota
                     break
 
                 route.append(closest_client)
@@ -66,6 +61,26 @@ class CVRPInstance:
             solution.append([self.depot] + route + [self.depot])
 
         return solution
+
+    def calculate_route_cost(self, route):
+        """
+        Calcula o custo (distância total) de uma rota específica,
+        somando as distâncias entre nós consecutivos.
+        """
+        cost = 0.0
+        for i in range(len(route) - 1):
+            cost += self.distances[route[i] - 1][route[i + 1] - 1]
+        return cost
+
+    def calculate_solution_cost(self, solution):
+        """
+        Calcula o custo total de uma solução, que é a soma
+        dos custos de cada rota na lista 'solution'.
+        """
+        total_cost = 0.0
+        for route in solution:
+            total_cost += self.calculate_route_cost(route)
+        return total_cost
 
 
 def euclidean_distance(coord1, coord2):
@@ -124,11 +139,19 @@ def load_instance(file_path):
 
 # Exemplo de uso
 if __name__ == "__main__":
+    # Carrega a instância
     instance = load_instance("./Vrp-Set-A/A/A-n32-k5.vrp")
+
+    # Gera a solução inicial
     initial_solution = instance.generate_initial_solution()
+
+    # Calcula e exibe o custo total da solução
+    total_cost = instance.calculate_solution_cost(initial_solution)
 
     print("Solução Inicial (Cliente Aleatório + Vizinho Mais Próximo):")
     for i, route in enumerate(initial_solution, start=1):
-        print(f"Veículo {i}: {route}")
+        route_cost = instance.calculate_route_cost(route)
+        print(f"Veículo {i}: {route} | Custo da Rota: {route_cost:.2f}")
 
+    print(f"Custo Total da Solução: {total_cost:.2f}")
     print(f"Número de veículos (lido do nome): {instance.num_vehicles}")
