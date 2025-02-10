@@ -1,5 +1,6 @@
 import math
 import random
+import copy
 
 
 class CVRPInstance:
@@ -135,6 +136,56 @@ def load_instance(file_path):
     return CVRPInstance(
         name, dimension, capacity, depot, node_coords, demands, num_vehicles
     )
+
+
+def check_route_capacity(route, demands, capacity):
+    """
+    Verifica se a soma das demandas dos clientes na rota
+    não excede a capacidade. (Ignora depósitos, assumindo rota[0] e rota[-1] são depósitos)
+    """
+    total_demand = sum(
+        demands[c] for c in route[1:-1]
+    )  # exclui depósito inicial e final
+    return total_demand <= capacity
+
+
+def two_opt_move(instance, solution):
+    """
+    Aplica um movimento 2-opt em uma única rota escolhida aleatoriamente.
+    - Não altera a distribuição de clientes entre as rotas (não afeta capacidade).
+    - Apenas reverte um subtrecho da rota para tentar melhorar (ou modificar) o caminho.
+    """
+
+    # Copia a solução para não alterar o original
+    new_solution = copy.deepcopy(solution)
+
+    # Escolhe aleatoriamente uma rota que tenha pelo menos 4 nós
+    # (2 nós de depósito + pelo menos 2 clientes)
+    candidate_routes = [r for r in new_solution if len(r) > 3]
+    if not candidate_routes:
+        # Não há rota elegível (todas têm 3 ou menos nós?)
+        return new_solution  # Retorna a cópia sem modificações
+
+    route = random.choice(candidate_routes)
+    # route é algo como [1, clienteA, clienteB, ..., 1]
+
+    # Tenta fazer 2-opt no trecho entre (1..len(route)-2),
+    # pois não mexemos no depósito inicial e final
+    n = len(route)
+    if n < 4:
+        return new_solution  # Por precaução
+
+    # Escolhe aleatoriamente duas posições i, j, com i < j
+    # para reverter a subrota route[i:j+1]
+    i = random.randint(1, n - 4)
+    j = random.randint(i + 1, n - 3)
+    i = 2
+    j = 5
+
+    # Reverte o subtrecho [i, j]
+    route[i + 1 : j + 1] = reversed(route[i + 1 : j + 1])
+
+    return new_solution
 
 
 # Exemplo de uso
