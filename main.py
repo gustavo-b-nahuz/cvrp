@@ -188,6 +188,161 @@ def two_opt_move(instance, solution):
     return new_solution
 
 
+def swap_move(instance, solution, max_attempts=10):
+    """
+    Realiza um movimento de Swap:
+    - Escolhe dois clientes distintos (podem estar na mesma rota ou em rotas diferentes)
+    - Tenta trocar de posição, checando a capacidade se as rotas forem diferentes.
+    - max_attempts define quantas tentativas fazemos antes de desistir.
+
+    Retorna um novo vizinho se encontrar um swap viável,
+    caso contrário pode retornar a solução original (cópia).
+    """
+
+    new_solution = copy.deepcopy(solution)
+    demands = instance.demands
+    capacity = instance.capacity
+
+    # Obtem todas as posições (rota, índice_na_rota) possíveis, exceto depositos
+    # route[i] do tipo [1, c1, c2, ..., 1]. Vértices de depósito são 0 e len(route)-1.
+    valid_positions = []
+    for r_idx, route in enumerate(new_solution):
+        for pos in range(1, len(route) - 1):
+            valid_positions.append((r_idx, pos))
+
+    if len(valid_positions) < 2:
+        return new_solution  # Não há como fazer swap
+
+    attempts = 0
+    while attempts < max_attempts:
+        attempts += 1
+
+        # Escolhe duas posições distintas aleatoriamente
+        i1, i2 = random.sample(valid_positions, 2)
+
+        r1, pos1 = i1
+        r2, pos2 = i2
+
+        route1 = new_solution[r1]
+        route2 = new_solution[r2]
+
+        client1 = route1[pos1]
+        client2 = route2[pos2]
+
+        # Se for o mesmo cliente (improvável, mas pode acontecer se tiver repetição?), ignore
+        if client1 == client2:
+            continue
+
+        # Caso a troca envolva duas rotas diferentes, precisamos checar capacidade
+        if r1 != r2:
+            # Capacidade livre na rota 1 (antes do swap)
+            # Calcula demanda total da rota 1
+            demand_r1 = sum(demands[c] for c in route1[1:-1])
+            # Se tirarmos client1 e colocarmos client2, a nova demanda será:
+            demand_r1_new = demand_r1 - demands[client1] + demands[client2]
+
+            # Mesmo raciocínio para rota 2
+            demand_r2 = sum(demands[c] for c in route2[1:-1])
+            demand_r2_new = demand_r2 - demands[client2] + demands[client1]
+
+            if demand_r1_new > capacity or demand_r2_new > capacity:
+                # Não cabe
+                continue
+
+        # Se chegou aqui, a troca é viável
+        route1[pos1], route2[pos2] = route2[pos2], route1[pos1]
+        return new_solution
+
+    # Se não encontrou nada viável depois de N tentativas, retorna sem mudança
+    return new_solution
+
+
+def or_opt_move(instance, solution, max_attempts=10, max_block_size=3):
+    """
+    Movimento Or-Opt:
+    - Remove um bloco (1..max_block_size) de clientes consecutivos de uma rota
+      e insere em outra posição (pode ser na mesma rota ou em outra),
+      desde que a capacidade seja respeitada.
+    - Tenta max_attempts vezes encontrar um movimento viável.
+
+    Retorna a nova solução se encontrar movimento, senão retorna a cópia original.
+    """
+
+    new_solution = copy.deepcopy(solution)
+    demands = instance.demands
+    capacity = instance.capacity
+
+    # Filtra rotas que possuam pelo menos 3 nós (deposito + 1 cliente + deposito)
+    candidate_routes = [idx for idx, r in enumerate(new_solution) if len(r) > 3]
+
+    if not candidate_routes:
+        # Nenhuma rota tem clientes suficientes
+        return new_solution
+
+    attempts = 0
+    while attempts < max_attempts:
+        attempts += 1
+
+        # Escolhe aleatoriamente uma rota de origem e uma de destino
+        r_orig_idx = random.choice(candidate_routes)
+        r_dest_idx = random.choice(
+            range(len(new_solution))
+        )  # pode ser a mesma ou outra
+
+        route_orig = new_solution[r_orig_idx]
+        route_dest = new_solution[r_dest_idx]
+
+        # Define um tamanho de bloco aleatório
+        block_size = random.randint(1, max_block_size)
+
+        # Posições possíveis de remoção (não remover depósitos!)
+        # route_orig: [1, c1, c2, ..., cN, 1] => índices válidos: 1..len-2
+        if len(route_orig) - 2 < 1:
+            # rota com 0 clientes?
+            continue
+
+        start_pos = random.randint(1, len(route_orig) - 2)  # Índice do primeiro cliente
+        end_pos = start_pos + block_size - 1  # Índice do último cliente no bloco
+        if end_pos >= len(route_orig) - 1:
+            continue  # bloco passa do final?
+
+        # Extrai esse bloco de clientes
+        block = route_orig[start_pos : end_pos + 1]
+
+        # Remove do original
+        del route_orig[start_pos : end_pos + 1]
+
+        # Agora tentamos inserir esse bloco em route_dest
+        # Posições válidas de inserção em route_dest: 1..len(route_dest)-1
+        insert_positions = list(range(1, len(route_dest)))
+
+        # Tenta inserir em alguma posição
+        inserted = False
+        random.shuffle(insert_positions)  # para não ficar determinístico
+        for ins_pos in insert_positions:
+            # Faz inserção temporária
+            route_dest[ins_pos:ins_pos] = block
+
+            # Verifica capacidade da rota de destino e da rota de origem
+            if check_route_capacity(
+                route_dest, demands, capacity
+            ) and check_route_capacity(route_orig, demands, capacity):
+                inserted = True
+                break
+            else:
+                # Desfaz inserção
+                del route_dest[ins_pos : ins_pos + len(block)]
+
+        if inserted:
+            return new_solution
+        else:
+            # Precisamos recolocar o bloco na rota origem se falhou inserir
+            route_orig[start_pos:start_pos] = block
+
+    # Não encontrou um movimento viável depois de max_attempts
+    return new_solution
+
+
 # Exemplo de uso
 if __name__ == "__main__":
     # Carrega a instância
