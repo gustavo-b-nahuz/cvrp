@@ -3,6 +3,7 @@ import random
 import copy
 import time
 import matplotlib.pyplot as plt
+import json
 
 
 def plot_iterations(best_objective_values, current_iteration_values):
@@ -379,20 +380,11 @@ def or_opt_move(instance, solution, max_attempts, max_block_size):
                 del route_dest[ins_pos : ins_pos + len(block)]
 
         if inserted:
-            for i in new_solution:
-                if len(i) == 2:
-                    print("Invalido")
-                    exit(1)
             return new_solution
         else:
             # Precisamos recolocar o bloco na rota origem se falhou inserir
             route_orig[start_pos:start_pos] = block
 
-    # Não encontrou um movimento viável depois de max_attempts
-    # for i in new_solution:
-    #     if len(i) == 2:
-    #         print("Invalido")
-    #         exit(1)
     return new_solution
 
 
@@ -477,42 +469,34 @@ def vns_solve(
     best_cost = instance.calculate_solution_cost(best_sol)
     best_cost_iter.append(best_cost)
     current_cost_iter.append(best_cost)
-    # print(best_cost)
+
     time_found_best = 0.0
     k = 1  # Começamos com a vizinhança k=1
     current = 0
-    best_iter = 0
     while (time.time() - start_time) < max_time:
         current = current + 1
         # Shaking: aplica aleatoriamente a vizinhança k sobre a best_sol
         shaken_sol = neighborhoods[k - 1](instance, best_sol)
-        # print("Vizinhança do vns:", neighborhoods[k - 1].__name__)
-        # print("Shaken solution:", shaken_sol)
 
         # Local search: refina shaken_sol
         local_sol, heuristic = local_search(
             instance, shaken_sol, max_attempts, max_block_size_oropt, max_iterations=50
         )
-        # print(heuristic)
         local_cost = instance.calculate_solution_cost(local_sol)
         current_cost_iter.append(local_cost)
 
         # Se melhorou, aceita e volta para k=1
         if local_cost < best_cost:
-            best_iter = current
             time_found_best = time.time() - start_time
             best_sol = local_sol
             best_cost = local_cost
             k = 1
-            # print("Achou melhor:", best_sol, best_cost, heuristic)
         else:
             # Caso contrário, incrementa k
             k += 1
             if k > len(neighborhoods):
                 k = 1
         best_cost_iter.append(best_cost)
-    # print(best_iter)
-    # print(len(best_cost_iter))
     # plot_iterations(best_cost_iter, current_cost_iter)
 
     return best_sol, best_cost, time_found_best
@@ -522,16 +506,29 @@ def vns_solve(
 # Exemplo de uso (fora da função, em outro arquivo ou na main):
 # -------------------------------------------------------------------------
 if __name__ == "__main__":
-    instance = load_instance("./Vrp-Set-A/A/A-n45-k7.vrp")
+    file_path = "params.json"
+    try:
+        with open(file_path, "r") as f:
+            params = json.load(f)
+    except FileNotFoundError:
+        print(f"Arquivo {file_path} não encontrado.")
+    except json.JSONDecodeError as e:
+        print(f"Erro ao decodificar o JSON: {e}")
+    instance_name = params.get("instance_name", "./Vrp-Set-A/A/A-n32-k5.vrp")
+    max_attempts = params.get("max_attempts", 150)
+    max_block_size_oropt = params.get("max_block_size_oropt", 7)
+    max_time = params.get("max_time", 10)
+
+    instance = load_instance(instance_name)
     initial_solution = instance.generate_initial_solution()
 
     # Executa o VNS
     best_sol, best_cost, time_found_best = vns_solve(
         instance,
         initial_solution,
-        max_attempts=150,
-        max_block_size_oropt=7,
-        max_time=10,
+        max_attempts=max_attempts,
+        max_block_size_oropt=max_block_size_oropt,
+        max_time=max_time,
     )
 
     # Mostra resultado

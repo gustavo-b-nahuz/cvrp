@@ -1,0 +1,6 @@
+{
+    "instance_name": "./Vrp-Set-A/A/A-n32-k5.vrp",
+    "max_attempts": 150,
+    "max_block_size_oropt": 7,
+    "max_time": 10
+}
