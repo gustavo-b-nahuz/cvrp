@@ -1,6 +1,7 @@
 import math
 import random
 import copy
+import time
 
 
 class CVRPInstance:
@@ -124,7 +125,7 @@ def load_instance(file_path):
                 break
             elif section == "NODE_COORD_SECTION":
                 parts = line.split()
-                node_coords[int(parts[0])] = (int(parts[1]), int(parts[2]))
+                node_coords[int(parts[0])] = (float(parts[1]), float(parts[2]))
             elif section == "DEMAND_SECTION":
                 parts = line.split()
                 demands[int(parts[0])] = int(parts[1])
@@ -161,7 +162,7 @@ def two_opt_move(instance, solution):
 
     # Escolhe aleatoriamente uma rota que tenha pelo menos 4 nós
     # (2 nós de depósito + pelo menos 2 clientes)
-    candidate_routes = [r for r in new_solution if len(r) > 3]
+    candidate_routes = [r for r in new_solution if len(r) >= 5]
     if not candidate_routes:
         # Não há rota elegível (todas têm 3 ou menos nós?)
         return new_solution  # Retorna a cópia sem modificações
@@ -179,8 +180,6 @@ def two_opt_move(instance, solution):
     # para reverter a subrota route[i:j+1]
     i = random.randint(1, n - 4)
     j = random.randint(i + 1, n - 3)
-    i = 2
-    j = 5
 
     # Reverte o subtrecho [i, j]
     route[i + 1 : j + 1] = reversed(route[i + 1 : j + 1])
@@ -188,7 +187,7 @@ def two_opt_move(instance, solution):
     return new_solution
 
 
-def swap_move(instance, solution, max_attempts=10):
+def swap_move(instance, solution, max_attempts):
     """
     Realiza um movimento de Swap:
     - Escolhe dois clientes distintos (podem estar na mesma rota ou em rotas diferentes)
@@ -257,7 +256,7 @@ def swap_move(instance, solution, max_attempts=10):
     return new_solution
 
 
-def or_opt_move(instance, solution, max_attempts=10, max_block_size=3):
+def or_opt_move(instance, solution, max_attempts, max_block_size):
     """
     Movimento Or-Opt:
     - Remove um bloco (1..max_block_size) de clientes consecutivos de uma rota
@@ -269,6 +268,10 @@ def or_opt_move(instance, solution, max_attempts=10, max_block_size=3):
     """
 
     new_solution = copy.deepcopy(solution)
+    for i in new_solution:
+        if len(i) == 2:
+            print("Chegou com sol invalida:", i)
+            exit(1)
     demands = instance.demands
     capacity = instance.capacity
 
@@ -297,8 +300,7 @@ def or_opt_move(instance, solution, max_attempts=10, max_block_size=3):
 
         # Posições possíveis de remoção (não remover depósitos!)
         # route_orig: [1, c1, c2, ..., cN, 1] => índices válidos: 1..len-2
-        if len(route_orig) - 2 < 1:
-            # rota com 0 clientes?
+        if len(route_orig) - 2 <= block_size or len(route_dest) - 2 <= block_size:
             continue
 
         start_pos = random.randint(1, len(route_orig) - 2)  # Índice do primeiro cliente
@@ -334,30 +336,155 @@ def or_opt_move(instance, solution, max_attempts=10, max_block_size=3):
                 del route_dest[ins_pos : ins_pos + len(block)]
 
         if inserted:
+            for i in new_solution:
+                if len(i) == 2:
+                    # print(new_solution)
+                    # print(route_orig, route_dest)
+                    print("aaa")
+                    exit(1)
             return new_solution
         else:
             # Precisamos recolocar o bloco na rota origem se falhou inserir
             route_orig[start_pos:start_pos] = block
 
     # Não encontrou um movimento viável depois de max_attempts
+    for i in new_solution:
+        if len(i) == 2:
+            print("bbb")
+            exit(1)
     return new_solution
 
 
-# Exemplo de uso
-if __name__ == "__main__":
-    # Carrega a instância
-    instance = load_instance("./Vrp-Set-A/A/A-n32-k5.vrp")
+def local_search(
+    instance,
+    solution,
+    max_attempts,
+    max_block_size_oropt,
+    max_iterations=1000,
+):
+    """
+    Faz uma busca local simples, tentando aplicar
+    2-opt, swap e or-opt de forma repetida,
+    até não encontrar mais melhoras ou atingir max_iterations.
 
-    # Gera a solução inicial
+    Retorna a melhor solução local encontrada.
+    """
+    best_sol = copy.deepcopy(solution)
+    best_cost = instance.calculate_solution_cost(best_sol)
+
+    neighborhoods = [
+        lambda inst, sol: two_opt_move(inst, sol),
+        lambda inst, sol: swap_move(inst, sol, max_attempts),
+        lambda inst, sol: or_opt_move(inst, sol, max_attempts, max_block_size_oropt),
+    ]
+
+    improved = True
+    it = 0
+    heuristic = None
+    while improved and it < max_iterations:
+        improved = False
+        it += 1
+
+        # Tenta cada vizinhança em ordem aleatória (ou em ordem fixa se preferir)
+        # random.shuffle(neighborhoods)
+
+        for move_func in neighborhoods:
+            # print("Vizinhança do local search:", move_func.__name__)
+            new_sol = move_func(instance, best_sol)
+            for i in new_sol:
+                if len(i) == 2:
+                    print(move_func)
+                    exit(1)
+            new_cost = instance.calculate_solution_cost(new_sol)
+
+            if new_cost < best_cost:
+                best_sol = new_sol
+                heuristic = move_func.__name__
+                best_cost = new_cost
+                improved = True
+                # Quebra para recomeçar do primeiro neighborhood (ou continue se preferir)
+                break
+
+    return best_sol, heuristic
+
+
+def vns_solve(
+    instance, initial_solution, max_attempts, max_block_size_oropt, max_time=300
+):
+    """
+    Executa o VNS, com 3 vizinhanças (k=1..3):
+      1) two_opt_move
+      2) swap_move
+      3) or_opt_move
+
+    Critério de parada: 300 segundos.
+    Retorna a melhor solução encontrada.
+    """
+    # print(initial_solution)
+    start_time = time.time()
+
+    # Define as vizinhanças na ordem k = 1..3
+    neighborhoods = [
+        lambda inst, sol: two_opt_move(inst, sol),
+        lambda inst, sol: swap_move(inst, sol, max_attempts),
+        lambda inst, sol: or_opt_move(inst, sol, max_attempts, max_block_size_oropt),
+    ]
+
+    # Melhor solução atual
+    best_sol = copy.deepcopy(initial_solution)
+    best_cost = instance.calculate_solution_cost(best_sol)
+    # print(best_cost)
+    time_found_best = 0.0
+    k = 1  # Começamos com a vizinhança k=1
+
+    while (time.time() - start_time) < max_time:
+        # Shaking: aplica aleatoriamente a vizinhança k sobre a best_sol
+        shaken_sol = neighborhoods[k - 1](instance, best_sol)
+        # print("Vizinhança do vns:", neighborhoods[k - 1].__name__)
+        # print("Shaken solution:", shaken_sol)
+
+        # Local search: refina shaken_sol
+        local_sol, heuristic = local_search(
+            instance, shaken_sol, max_attempts, max_block_size_oropt, max_iterations=50
+        )
+        # print(heuristic)
+        local_cost = instance.calculate_solution_cost(local_sol)
+
+        # Se melhorou, aceita e volta para k=1
+        if local_cost < best_cost:
+            time_found_best = time.time() - start_time
+            best_sol = local_sol
+            best_cost = local_cost
+            k = 1
+            # print("Achou melhor:", best_sol, best_cost, heuristic)
+        else:
+            # Caso contrário, incrementa k
+            k += 1
+            if k > len(neighborhoods):
+                k = 1
+
+    return best_sol, best_cost, time_found_best
+
+
+# -------------------------------------------------------------------------
+# Exemplo de uso (fora da função, em outro arquivo ou na main):
+# -------------------------------------------------------------------------
+if __name__ == "__main__":
+    instance = load_instance("./Vrp-Set-A/A/A-n32-k5.vrp")
     initial_solution = instance.generate_initial_solution()
 
-    # Calcula e exibe o custo total da solução
-    total_cost = instance.calculate_solution_cost(initial_solution)
+    # Executa o VNS
+    best_sol, best_cost, time_found_best = vns_solve(
+        instance,
+        initial_solution,
+        max_attempts=150,
+        max_block_size_oropt=7,
+        max_time=10,
+    )
 
-    print("Solução Inicial (Cliente Aleatório + Vizinho Mais Próximo):")
-    for i, route in enumerate(initial_solution, start=1):
-        route_cost = instance.calculate_route_cost(route)
-        print(f"Veículo {i}: {route} | Custo da Rota: {route_cost:.2f}")
-
-    print(f"Custo Total da Solução: {total_cost:.2f}")
-    print(f"Número de veículos (lido do nome): {instance.num_vehicles}")
+    # Mostra resultado
+    cost_best = instance.calculate_solution_cost(best_sol)
+    print("Melhor Solução Encontrada pelo VNS:")
+    for i, route in enumerate(best_sol, start=1):
+        print(f"Veículo {i}: {route}")
+    print(f"Custo da Melhor Solução: {cost_best:.2f}")
