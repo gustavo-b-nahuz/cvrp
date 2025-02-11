@@ -2,6 +2,54 @@ import math
 import random
 import copy
 import time
+import matplotlib.pyplot as plt
+
+
+def plot_iterations(best_objective_values, current_iteration_values):
+    """
+    Gera um gráfico da evolução da melhor solução acumulada e da melhor solução por iteração
+    para a instância A-n32-k5.
+
+    Parâmetros:
+        best_objective_values (list): Lista com os valores acumulados da melhor solução por iteração.
+        current_iteration_values (list): Lista com os valores da solução da iteração atual.
+    """
+    iterations = list(
+        range(1, len(best_objective_values) + 1)
+    )  # Cria o vetor de iterações
+    optimal_value = min(best_objective_values)  # Valor ótimo para a instância A-n32-k5
+
+    # Configurações do gráfico
+    plt.figure(figsize=(10, 6))
+    plt.plot(
+        iterations,
+        current_iteration_values,
+        label="Melhor Solução da Iteração",
+        color="green",
+        linewidth=2,
+        linestyle="--",
+    )
+    plt.plot(
+        iterations,
+        best_objective_values,
+        label="Melhor Solução Acumulada",
+        color="yellow",
+        linewidth=2,
+    )
+    plt.axhline(
+        y=optimal_value, color="red", linestyle="--", label=f"Ótimo ({optimal_value})"
+    )
+
+    # Configurações dos eixos e título
+    plt.xlabel("Iterações", fontsize=12)
+    plt.ylabel("Valor da Função Objetivo", fontsize=12)
+    plt.title("Evolução das Soluções - Instância A-n32-k5", fontsize=14)
+    plt.legend(fontsize=12)
+    plt.grid(True, linestyle="--", alpha=0.7)
+
+    # Exibir o gráfico
+    plt.tight_layout()
+    plt.show()
 
 
 class CVRPInstance:
@@ -160,11 +208,10 @@ def two_opt_move(instance, solution):
     # Copia a solução para não alterar o original
     new_solution = copy.deepcopy(solution)
 
-    # Escolhe aleatoriamente uma rota que tenha pelo menos 4 nós
-    # (2 nós de depósito + pelo menos 2 clientes)
+    # Escolhe aleatoriamente uma rota que tenha pelo menos 5 nós
+    # (2 nós de depósito + pelo menos 3 clientes)
     candidate_routes = [r for r in new_solution if len(r) >= 5]
     if not candidate_routes:
-        # Não há rota elegível (todas têm 3 ou menos nós?)
         return new_solution  # Retorna a cópia sem modificações
 
     route = random.choice(candidate_routes)
@@ -174,7 +221,7 @@ def two_opt_move(instance, solution):
     # pois não mexemos no depósito inicial e final
     n = len(route)
     if n < 4:
-        return new_solution  # Por precaução
+        return new_solution
 
     # Escolhe aleatoriamente duas posições i, j, com i < j
     # para reverter a subrota route[i:j+1]
@@ -268,10 +315,6 @@ def or_opt_move(instance, solution, max_attempts, max_block_size):
     """
 
     new_solution = copy.deepcopy(solution)
-    for i in new_solution:
-        if len(i) == 2:
-            print("Chegou com sol invalida:", i)
-            exit(1)
     demands = instance.demands
     capacity = instance.capacity
 
@@ -306,7 +349,7 @@ def or_opt_move(instance, solution, max_attempts, max_block_size):
         start_pos = random.randint(1, len(route_orig) - 2)  # Índice do primeiro cliente
         end_pos = start_pos + block_size - 1  # Índice do último cliente no bloco
         if end_pos >= len(route_orig) - 1:
-            continue  # bloco passa do final?
+            continue
 
         # Extrai esse bloco de clientes
         block = route_orig[start_pos : end_pos + 1]
@@ -338,9 +381,7 @@ def or_opt_move(instance, solution, max_attempts, max_block_size):
         if inserted:
             for i in new_solution:
                 if len(i) == 2:
-                    # print(new_solution)
-                    # print(route_orig, route_dest)
-                    print("aaa")
+                    print("Invalido")
                     exit(1)
             return new_solution
         else:
@@ -348,10 +389,10 @@ def or_opt_move(instance, solution, max_attempts, max_block_size):
             route_orig[start_pos:start_pos] = block
 
     # Não encontrou um movimento viável depois de max_attempts
-    for i in new_solution:
-        if len(i) == 2:
-            print("bbb")
-            exit(1)
+    # for i in new_solution:
+    #     if len(i) == 2:
+    #         print("Invalido")
+    #         exit(1)
     return new_solution
 
 
@@ -389,11 +430,10 @@ def local_search(
         # random.shuffle(neighborhoods)
 
         for move_func in neighborhoods:
-            # print("Vizinhança do local search:", move_func.__name__)
             new_sol = move_func(instance, best_sol)
             for i in new_sol:
                 if len(i) == 2:
-                    print(move_func)
+                    print("Invalido")
                     exit(1)
             new_cost = instance.calculate_solution_cost(new_sol)
 
@@ -421,6 +461,8 @@ def vns_solve(
     Retorna a melhor solução encontrada.
     """
     # print(initial_solution)
+    best_cost_iter = []
+    current_cost_iter = []
     start_time = time.time()
 
     # Define as vizinhanças na ordem k = 1..3
@@ -433,11 +475,15 @@ def vns_solve(
     # Melhor solução atual
     best_sol = copy.deepcopy(initial_solution)
     best_cost = instance.calculate_solution_cost(best_sol)
+    best_cost_iter.append(best_cost)
+    current_cost_iter.append(best_cost)
     # print(best_cost)
     time_found_best = 0.0
     k = 1  # Começamos com a vizinhança k=1
-
+    current = 0
+    best_iter = 0
     while (time.time() - start_time) < max_time:
+        current = current + 1
         # Shaking: aplica aleatoriamente a vizinhança k sobre a best_sol
         shaken_sol = neighborhoods[k - 1](instance, best_sol)
         # print("Vizinhança do vns:", neighborhoods[k - 1].__name__)
@@ -449,9 +495,11 @@ def vns_solve(
         )
         # print(heuristic)
         local_cost = instance.calculate_solution_cost(local_sol)
+        current_cost_iter.append(local_cost)
 
         # Se melhorou, aceita e volta para k=1
         if local_cost < best_cost:
+            best_iter = current
             time_found_best = time.time() - start_time
             best_sol = local_sol
             best_cost = local_cost
@@ -462,6 +510,10 @@ def vns_solve(
             k += 1
             if k > len(neighborhoods):
                 k = 1
+        best_cost_iter.append(best_cost)
+    # print(best_iter)
+    # print(len(best_cost_iter))
+    # plot_iterations(best_cost_iter, current_cost_iter)
 
     return best_sol, best_cost, time_found_best
 
@@ -470,7 +522,7 @@ def vns_solve(
 # Exemplo de uso (fora da função, em outro arquivo ou na main):
 # -------------------------------------------------------------------------
 if __name__ == "__main__":
-    instance = load_instance("./Vrp-Set-A/A/A-n32-k5.vrp")
+    instance = load_instance("./Vrp-Set-A/A/A-n45-k7.vrp")
     initial_solution = instance.generate_initial_solution()
 
     # Executa o VNS
